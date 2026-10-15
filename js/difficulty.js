@@ -2,7 +2,7 @@
  * difficulty.js - Centralized Linear Level Difficulty Progression Manager
  * 
  * Defines deterministic, formulaic progression rules for all gameplay parameters:
- * 1. Hunter Movement Interval: max(300, 900 - 50 * (level - 1)) ms
+ * 1. Hunter Movement Interval: max(180, 600 - 35 * (level - 1)) ms
  * 2. Maze Dimensions: Milestone schedule (15x11, 19x13, 23x15)
  * 3. Required Collectibles: min(15, 5 + 2 * (level - 1))
  * 4. Maze Complexity: Loop factor decreasing from 0.32 down to 0.04
@@ -11,13 +11,13 @@
 class DifficultyManager {
   /**
    * Calculate hunter step interval in milliseconds
-   * Formula: max(300, 900 - 50 * (level - 1))
+   * Formula: max(180, 600 - 35 * (level - 1))
    * @param {number} level - 1-based level index
-   * @returns {number} Interval in ms (bounded [300, 900])
+   * @returns {number} Interval in ms (bounded [180, 600])
    */
   static getHunterInterval(level) {
     const lvl = Math.max(1, Math.floor(level));
-    return Math.max(300, 900 - 50 * (lvl - 1));
+    return Math.max(180, 600 - 35 * (lvl - 1));
   }
 
   /**

@@ -280,8 +280,8 @@ console.log('>>> [SECTION 4] DIFFICULTY & HUNTER MODE PROGRESSION REGRESSION');
 for (let lvl = 1; lvl <= 15; lvl++) {
   const config = DifficultyManager.getLevelConfig(lvl);
 
-  // Interval formula: max(300, 900 - 50 * (level - 1))
-  const expectedInterval = Math.max(300, 900 - 50 * (lvl - 1));
+  // Interval formula: max(180, 600 - 35 * (level - 1))
+  const expectedInterval = Math.max(180, 600 - 35 * (lvl - 1));
   assert(config.hunterIntervalMs === expectedInterval, `L${lvl}: interval ${config.hunterIntervalMs} === ${expectedInterval}`);
 
   // Relic formula: min(15, 5 + 2 * (level - 1))

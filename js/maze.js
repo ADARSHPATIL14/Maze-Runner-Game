@@ -183,7 +183,7 @@ class Maze {
     const DM = resolveDifficultyManager();
     const config = DM ? DM.getLevelConfig(lvl) : {
       level: lvl,
-      hunterIntervalMs: Math.max(300, 900 - 50 * (lvl - 1)),
+      hunterIntervalMs: Math.max(180, 600 - 35 * (lvl - 1)),
       cols: lvl <= 2 ? 15 : (lvl <= 4 ? 19 : 23),
       rows: lvl <= 2 ? 11 : (lvl <= 4 ? 13 : 15),
       requiredRelics: Math.min(15, 5 + 2 * (lvl - 1)),

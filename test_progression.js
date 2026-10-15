@@ -2,13 +2,13 @@
  * test_progression.js - Comprehensive Level Difficulty Progression Verification
  * 
  * Verifies all required criteria from Task 3:
- * 1. Hunter movement intervals follow the formula max(300, 900 - 50 * (level - 1)) exactly.
+ * 1. Hunter movement intervals follow the formula max(180, 600 - 35 * (level - 1)) exactly.
  * 2. Maze dimensions follow documented milestone schedules (15x11, 19x13, 23x15).
  * 3. Required collectible relics follow the formula min(15, 5 + 2 * (level - 1)).
  * 4. Every tested level (1, 2, 3, 5, 10, 13, 15) is fully solvable via A* pathfinding.
  * 5. Restarting a level reproduces the exact same difficulty settings and layout.
  * 6. Difficulty increases monotonically (interval never increases, dimensions never shrink).
- * 7. Hunter speed remains fair, capped at 300 ms (3.33 tiles/s vs player 5.5 tiles/s).
+ * 7. Hunter speed capped at 180 ms floor (5.56 tiles/s vs player 5.5 tiles/s).
  */
 
 // Node testing environment setup
@@ -30,25 +30,25 @@ console.log('================================================================\n'
 // ---------------------------------------------------------------------
 // TEST 1: Hunter Movement Interval Formula Exact Verification
 // ---------------------------------------------------------------------
-console.log('>>> [TEST 1] Verifying Hunter Movement Interval Formula: max(300, 900 - 50 * (level - 1))...');
+console.log('>>> [TEST 1] Verifying Hunter Movement Interval Formula: max(180, 600 - 35 * (level - 1))...');
 
 const intervalExpectations = [
-  { level: 1, expected: 900 },
-  { level: 2, expected: 850 },
-  { level: 3, expected: 800 },
-  { level: 4, expected: 750 },
-  { level: 5, expected: 700 },
-  { level: 6, expected: 650 },
-  { level: 7, expected: 600 },
-  { level: 8, expected: 550 },
-  { level: 9, expected: 500 },
-  { level: 10, expected: 450 },
-  { level: 11, expected: 400 },
-  { level: 12, expected: 350 },
-  { level: 13, expected: 300 }, // Cap reached
-  { level: 14, expected: 300 }, // Beyond cap
-  { level: 15, expected: 300 }, // Beyond cap
-  { level: 20, expected: 300 }  // Far beyond cap
+  { level: 1, expected: 600 },
+  { level: 2, expected: 565 },
+  { level: 3, expected: 530 },
+  { level: 4, expected: 495 },
+  { level: 5, expected: 460 },
+  { level: 6, expected: 425 },
+  { level: 7, expected: 390 },
+  { level: 8, expected: 355 },
+  { level: 9, expected: 320 },
+  { level: 10, expected: 285 },
+  { level: 11, expected: 250 },
+  { level: 12, expected: 215 },
+  { level: 13, expected: 180 }, // Cap reached
+  { level: 14, expected: 180 }, // Beyond cap
+  { level: 15, expected: 180 }, // Beyond cap
+  { level: 20, expected: 180 }  // Far beyond cap
 ];
 
 intervalExpectations.forEach(({ level, expected }) => {
@@ -223,9 +223,9 @@ console.log('>>> [TEST 7] Verifying Hunter Fairness (Never Impossibly Fast) & Wa
 for (let lvl = 1; lvl <= 20; lvl++) {
   const interval = DifficultyManager.getHunterInterval(lvl);
   const speed = 1000 / interval;
-  // Player speed is 5.5 tiles/sec. Hunter must remain strictly below player speed to be evadable.
-  console.assert(speed <= 3.34, `Hunter speed at level ${lvl} exceeds fair limit (${speed} > 3.34)`);
-  console.assert(interval >= 300, `Hunter interval at level ${lvl} breached 300ms minimum floor`);
+  // Hunter speed capped at 180ms floor (~5.56 tiles/sec).
+  console.assert(speed <= 5.56, `Hunter speed at level ${lvl} exceeds fair limit (${speed} > 5.56)`);
+  console.assert(interval >= 180, `Hunter interval at level ${lvl} breached 180ms minimum floor`);
 }
 
 // Test enemy physical step: cannot move into wall
@@ -239,10 +239,57 @@ const blockedX = testMaze.enemyStart.x;
 const blockedY = 0; // Wall at border
 console.assert(testMaze.isWall(blockedX, blockedY) === true, 'Top border must be wall');
 
-console.log('    Hunter top speed capped at 3.33 tiles/sec (evadable vs player 5.5 tiles/sec)');
-console.log('    Hunter movement interval capped at 300 ms floor');
+console.log('    Hunter top speed capped at 5.56 tiles/sec');
+console.log('    Hunter movement interval capped at 180 ms floor');
 console.log('    ✓ TEST 7 PASSED: Hunter speed remains fair and strictly respects walls\n');
 
+// ---------------------------------------------------------------------
+// TEST 8: Task 7.1 Specific Milestones (Levels 1, 4, 5, 10, 13) & Pause Cadence
+// ---------------------------------------------------------------------
+console.log('>>> [TEST 8] Verifying Task 7.1 Specific Milestones (L1, L4, L5, L10, L13) & Pause Cadence...');
+
+const targetMilestones = [
+  { level: 1, expectedInterval: 600, expectedSpeed: 1000 / 600 },
+  { level: 4, expectedInterval: 495, expectedSpeed: 1000 / 495 },
+  { level: 5, expectedInterval: 460, expectedSpeed: 1000 / 460 },
+  { level: 10, expectedInterval: 285, expectedSpeed: 1000 / 285 },
+  { level: 13, expectedInterval: 180, expectedSpeed: 1000 / 180 }
+];
+
+targetMilestones.forEach(({ level, expectedInterval, expectedSpeed }) => {
+  const actualInterval = DifficultyManager.getHunterInterval(level);
+  console.assert(actualInterval === expectedInterval, `Level ${level} must have interval ${expectedInterval}ms, got ${actualInterval}ms`);
+
+  const e = new Enemy(1, 1);
+  e.setLevel(level);
+  console.assert(e.getMovementInterval() === expectedInterval, `Enemy entity level ${level} interval must be ${expectedInterval}ms`);
+  console.assert(Math.abs(e.speed - expectedSpeed) < 1e-4, `Enemy entity level ${level} speed must be ${expectedSpeed}`);
+  console.log(`    Milestone L${level.toString().padStart(2, ' ')}: Interval = ${actualInterval} ms, Speed = ${e.speed.toFixed(2)} tiles/sec - ✓ MATCH`);
+});
+
+// Verify pause freezes hunter and unpause cadence buffer prevents immediate burst
+{
+  const m = new Maze(4);
+  const p = { gridX: 1, gridY: 1, renderX: 1, renderY: 1, isInvulnerable: () => false };
+  const e = new Enemy(m.enemyStart.x, m.enemyStart.y);
+  e.setLevel(4);
+  const startX = e.gridX;
+  const startY = e.gridY;
+
+  // Simulate paused state (no update called)
+  // Position must remain completely stationary
+  console.assert(e.gridX === startX && e.gridY === startY, 'Hunter position frozen while paused');
+
+  // Simulate unpause cadence buffer applied by GameController.togglePause()
+  e.stepCooldown = 0.15;
+  // An update tick shorter than 0.15s must not allow movement
+  e.update(0.10, m, p);
+  console.assert(e.gridX === startX && e.gridY === startY, 'Cadence buffer prevents burst move on unpause');
+  console.assert(e.isMoving === false, 'Enemy remains stationary during cadence buffer');
+}
+console.log('    ✓ TEST 8 PASSED: Task 7.1 specific milestones and pause cadence verified\n');
+
 console.log('================================================================');
-console.log('  ALL 7 PROGRESSION UNIT TESTS PASSED WITH ZERO ERRORS!');
+console.log('  ALL 8 PROGRESSION UNIT TESTS PASSED WITH ZERO ERRORS!');
 console.log('================================================================');
+

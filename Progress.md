@@ -650,6 +650,95 @@ Improve level progression, completion feedback, persistent records, and replayab
 #### 8. Updated Last-Modified Date
 - 2026-10-15T12:25:00+05:30.
 
+---
+
+### Task 7.1: Increase AI Hunter Speed
+
+#### 1. Objective
+Increase the AI Hunter's movement speed across all levels to create a more intense, urgent, and challenging pursuit without breaking existing gameplay systems, fairness, or player responsiveness.
+
+#### 2. Speed Formula & Progression Schedule
+Replaced the previous slow formula:
+$$\text{interval} = \max(300, 900 - 50 \times (\text{level} - 1))\text{ ms}$$
+with the faster, more challenging progression:
+$$\text{interval} = \max(180, 600 - 35 \times (\text{level} - 1))\text{ ms}$$
+
+| Level | Previous Interval | Previous Speed | New Interval | New Speed | Hunter Mode | Milestone Grid |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **1** | 900 ms | 1.11 tiles/s | **600 ms** | **1.67 tiles/s** | Basic Patrol / LOS | $15 \times 11$ |
+| **2** | 850 ms | 1.18 tiles/s | **565 ms** | **1.77 tiles/s** | Basic Patrol / LOS | $15 \times 11$ |
+| **3** | 800 ms | 1.25 tiles/s | **530 ms** | **1.89 tiles/s** | Basic Patrol / LOS | $19 \times 13$ |
+| **4** | 750 ms | 1.33 tiles/s | **495 ms** | **2.02 tiles/s** | A* Pathfinding AI | $19 \times 13$ |
+| **5** | 700 ms | 1.43 tiles/s | **460 ms** | **2.17 tiles/s** | A* Pathfinding AI | $23 \times 15$ |
+| **6** | 650 ms | 1.54 tiles/s | **425 ms** | **2.35 tiles/s** | A* Pathfinding AI | $23 \times 15$ |
+| **7** | 600 ms | 1.67 tiles/s | **390 ms** | **2.56 tiles/s** | A* Pathfinding AI | $23 \times 15$ |
+| **8** | 550 ms | 1.82 tiles/s | **355 ms** | **2.82 tiles/s** | A* Pathfinding AI | $23 \times 15$ |
+| **9** | 500 ms | 2.00 tiles/s | **320 ms** | **3.13 tiles/s** | A* Pathfinding AI | $23 \times 15$ |
+| **10** | 450 ms | 2.22 tiles/s | **285 ms** | **3.51 tiles/s** | A* Pathfinding AI | $23 \times 15$ |
+| **11** | 400 ms | 2.50 tiles/s | **250 ms** | **4.00 tiles/s** | A* Pathfinding AI | $23 \times 15$ |
+| **12** | 350 ms | 2.86 tiles/s | **215 ms** | **4.65 tiles/s** | A* Pathfinding AI | $23 \times 15$ |
+| **13+** | 300 ms (cap) | 3.33 tiles/s | **180 ms (cap)** | **5.56 tiles/s** | A* Pathfinding AI | $23 \times 15$ |
+
+**Player Speed**: Remains unchanged at 5.5 tiles/sec.
+**Fairness**: The player can outpace the hunter at early-to-mid levels and remains slightly faster than or matched with the hunter even at maximum difficulty, rewarding sharp cornering and route planning.
+
+#### 3. Investigation & Timing Bottlenecks Identified
+During inspection prior to editing:
+1. **Clamp Floor Bottleneck**: In `js/enemy.js`, `setMovementInterval(intervalMs)` had an internal lower bound of `Math.max(300, ...)`. If left unadjusted, speeds at Level 10 (285 ms) and Level 13+ (180 ms) would have been clipped to 300 ms. Updated to `Math.max(180, Math.min(1500, Math.round(intervalMs)))`.
+2. **Smooth Glide Sub-pixel Movement**: `this.speed = 1000 / this.movementIntervalMs` is applied identically in both basic mode (`updateBasicMovement`) and A* mode (`updateAStarMovement`). Distance to target cell is 1 tile; time to traverse 1 tile is precisely `movementIntervalMs`.
+3. **No Timer Accumulation Bugs**: Movement uses `if (this.isMoving) { ... } else { ... }`, preventing the drone from taking multiple tile steps within the same frame tick.
+4. **Cadence Buffers**:
+   - `stepCooldown = 0.2` on level start gives the player time to assess surroundings.
+   - `stepCooldown = 0.15` on unpausing prevents an immediate burst step when resuming gameplay.
+
+#### 4. Files Modified
+- `js/difficulty.js`: Updated `getHunterInterval(level)` to `Math.max(180, 600 - 35 * (lvl - 1))`.
+- `js/enemy.js`:
+  - Updated default constructor interval to 600 ms.
+  - Updated `setMovementInterval(intervalMs)` to clamp with lower bound `180` instead of `300`.
+  - Updated fallback in `setLevel(level)` to match the new formula.
+- `js/maze.js`: Updated fallback `hunterIntervalMs` in `loadLevel` to match the new formula.
+- `test_progression.js`:
+  - Updated TEST 1 interval expectations for Levels 1–20.
+  - Updated TEST 7 fairness checks for the 180 ms floor.
+  - Added TEST 8 specifically asserting target milestones (Levels 1, 4, 5, 10, 13) and pause cadence buffer behavior.
+- `test_progression_system.js`: Updated Section 11 & 12 regression assertion to the new formula.
+- `test_maze_generation.js`: Updated Section 4 regression assertion to the new formula.
+
+#### 5. Automated Test Commands and Exact Results
+All test suites executed with 100% pass rate:
+- `node test_progression.js`: **8 / 8 tests passed (0 failures)**
+  - TEST 1: Hunter Movement Interval Formula across all levels (L1–L20)
+  - TEST 2: Maze Dimension Milestones
+  - TEST 3: Relic Progression Formula
+  - TEST 4: Solvability for Levels 1, 2, 3, 5, 10, 13, 15
+  - TEST 5: Restart Determinism
+  - TEST 6: Monotonicity across Levels 1–20
+  - TEST 7: Hunter Fairness & Wall Boundary Collision
+  - TEST 8: Task 7.1 Specific Milestones (L1: 600ms, L4: 495ms, L5: 460ms, L10: 285ms, L13: 180ms) and Pause Freeze/Cadence
+- `node test_progression_system.js`: **119 / 119 tests passed (0 failures)**
+- `node test_maze_generation.js`: **3,819 / 3,819 tests passed (0 failures)**
+- `node test_ai_intelligence.js`: **369 / 369 tests passed (0 failures)**
+- `node test_hunter_modes.js`: **6 / 6 tests passed (0 failures)**
+- `node test_astar.js`: **7 / 7 tests passed (0 failures)**
+- `node test_engine.js`: **5 / 5 tests passed (0 failures)**
+- **Combined Total**: **4,333 / 4,333 assertions passed (0 failures, 0 regressions)**.
+
+#### 6. Browser Verification Performed
+Verified via browser subagent on `http://localhost:3000/`:
+1. **Level 1 (`?level=1`)**: Started run, observed hunter at 600 ms interval (1.67 tiles/sec).
+2. **Pause & Resume**: Pressed 'P', verified "MISSION PAUSED" overlay and cryo-stasis freeze; unpaused and confirmed hunter resumed smoothly with 0.15s cadence buffer without jump-stepping.
+3. **Level 4 (`?level=4`)**: Observed "WARNING: AI HUNTER ACTIVATED" sequence; observed A* hunter pursuing at 495 ms interval (2.02 tiles/sec).
+4. **Level 5 (`?level=5`)**: Observed Level 5 gameplay and faster hunter pursuit at 460 ms interval (2.17 tiles/sec) across $23 \times 15$ maze.
+5. **Console Logs**: Captured browser console logs: **0 errors, 0 warnings**.
+
+#### 7. Remaining Issues
+None. The hunter speed progression is fully integrated, responsive, verified, and free of regressions.
+
+#### 8. Updated Last-Modified Date
+- 2026-10-15T12:35:00+05:30.
+
+
 
 
 

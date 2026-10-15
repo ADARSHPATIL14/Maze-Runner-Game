@@ -8,7 +8,7 @@
  * 
  * Features:
  * - Strict grid collision respect (no wall phasing, no diagonal stepping)
- * - Deterministic milestone speed derivation: max(300, 900 - 50 * (level - 1)) ms
+ * - Deterministic milestone speed derivation: max(180, 600 - 35 * (level - 1)) ms
  * - Sub-pixel smooth translation and visual sensory pulsing
  * - Safe handling of unreachable targets and dead-ends
  * - Pauses cleanly and resets completely on level change
@@ -37,9 +37,9 @@ class Enemy {
     this.currentLevel = 1;
 
     // Movement configuration derived from Level Progression formula:
-    // max(300, 900 - 50 * (level - 1)) ms per cell step
-    this.movementIntervalMs = 900;
-    this.movementInterval = 900;
+    // max(180, 600 - 35 * (level - 1)) ms per cell step
+    this.movementIntervalMs = 600;
+    this.movementInterval = 600;
     this.speed = 1000 / this.movementIntervalMs; 
     this.stepPauseDuration = 0; // Continuous smooth glide across calculated movement interval
     this.stepCooldown = 0;
@@ -129,7 +129,7 @@ class Enemy {
    * @param {number} intervalMs 
    */
   setMovementInterval(intervalMs) {
-    this.movementIntervalMs = Math.max(300, Math.min(1500, Math.round(intervalMs)));
+    this.movementIntervalMs = Math.max(180, Math.min(1500, Math.round(intervalMs)));
     this.movementInterval = this.movementIntervalMs;
     this.speed = 1000 / this.movementIntervalMs;
     this.stepPauseDuration = 0;
@@ -150,7 +150,7 @@ class Enemy {
   setLevel(level) {
     this.currentLevel = Math.max(1, Math.floor(level));
     const DM = this._getDifficultyManager();
-    const interval = DM ? DM.getHunterInterval(this.currentLevel) : Math.max(300, 900 - 50 * (this.currentLevel - 1));
+    const interval = DM ? DM.getHunterInterval(this.currentLevel) : Math.max(180, 600 - 35 * (this.currentLevel - 1));
     const mode = DM && DM.getHunterMode ? DM.getHunterMode(this.currentLevel) : (this.currentLevel <= 3 ? 'basic' : 'astar');
     this.setMovementInterval(interval);
     this.setMode(mode);

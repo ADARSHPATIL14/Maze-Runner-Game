@@ -378,7 +378,7 @@ console.log('>>> [SECTION 11 & 12] SEEDED MAZE & DIFFICULTY FORMULAS REGRESSION'
 
 for (let lvl = 1; lvl <= 15; lvl++) {
   const config = DifficultyManager.getLevelConfig(lvl);
-  const expectedInterval = Math.max(300, 900 - 50 * (lvl - 1));
+  const expectedInterval = Math.max(180, 600 - 35 * (lvl - 1));
   const expectedRelics = Math.min(15, 5 + 2 * (lvl - 1));
   const expectedMode = lvl < 4 ? 'basic' : 'astar';
   const expectedLoopFactor = Math.max(0.04, 0.32 - 0.04 * (lvl - 1));
