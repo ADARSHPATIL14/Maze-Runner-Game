@@ -1,7 +1,0 @@
-{
-  "name": "Maze Runner 2D",
-  "description": "High-contrast light-mode 2D maze runner game featuring real-time A* AI chasers, 3 dynamic procedural maps, local high score tracking, and achievement unlocks.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
-
