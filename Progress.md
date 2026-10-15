@@ -352,4 +352,125 @@ Improve the reliability, decision-making, difficulty balancing, and visual feedb
 #### 13. Updated Last-Modified Date
 - 2026-10-15T10:37:00+05:30.
 
+---
+
+### Task 6: Procedural Maze Variety, Level Design & Replayability
+
+#### 1. Objective
+Enhance procedural maze generation in *Maze Runner: Escape the AI Hunter* to produce diverse, interesting, reproducible, and fair layouts while guaranteeing 100% reachability and solvability. Introduce visual level identity themes without altering collision rules or existing difficulty formulas.
+
+#### 2. Existing Generation Architecture Inspected
+- Inspected `js/maze.js`, `js/difficulty.js`, `js/pathfinding.js`, `js/enemy.js`, `js/player.js`, `js/renderer.js`, `js/main.js`, `index.html`, and existing test suites (`test_progression.js`, `test_ai_intelligence.js`, `test_hunter_modes.js`, `test_astar.js`, `test_engine.js`).
+- Verified that `DifficultyManager` centrally controls milestone dimensions (Levels 1–2: 15×11; Levels 3–4: 19×13; Levels 5+: 23×15), required relic progression (`min(15, 5 + 2 * (level - 1))`), loop factor (`max(0.04, 0.32 - 0.04 * (level - 1))`), hunter movement intervals (`max(300, 900 - 50 * (level - 1))`), and mode selection (Levels 1–3: basic, Level 4+: A*).
+- Identified that earlier generation always started DFS at fixed node `(1, 1)`, resulting in limited branch variety, and relic selection lacked an anti-clustering distance filter.
+
+#### 3. Seeded Generation Behavior
+- Utilized the existing 32-bit deterministic Mulberry32 PRNG (`createMulberry32(seed)`).
+- Every procedural choice—DFS spanning tree branching, loop braiding, candidate floor shuffling, anti-clustering relic selection, and cosmetic theme tile decoration—strictly uses the seeded PRNG.
+- Implemented `loadLevel(level, customSeed)` and `constructor(level, seed)` allowing deterministic seed injection while defaulting to level-derived base seeds `((lvl * 10007 + 42) >>> 0)`.
+- Recorded `this.seed` and `this.retryCount` on the `Maze` instance for test inspection and debugging.
+- Verified that identical seeds produce 100% identical tile layouts and relic positions across level restarts.
+
+#### 4. Layout-Variety Improvements
+- **Seeded Odd-Coordinate DFS Start**: Instead of hardcoding start node `(1, 1)`, the DFS tree starts from a seeded odd coordinate `(1 + 2 * floor(rng() * oddCols), 1 + 2 * floor(rng() * oddRows))`. This changes tree branching directionality and dead-end distributions significantly between different seeds.
+- **Corridor Braiding**: Evaluated horizontal and vertical passages separated by a wall. Carved connections with probability equal to `config.loopFactor`, directly preserving the exact formula `max(0.04, 0.32 - 0.04 * (level - 1))`. At Level 1, higher loop factor (0.32) yields interconnected corridors with multiple escape routes; at higher levels, lower loop factor (down to 0.04) introduces complex dead ends and tactical chokepoints.
+
+#### 5. Connectivity and Solvability Validation
+- Consolidated all reachability checks into an optimized single-pass BFS traversal starting from `playerStart` before committing the generated level.
+- BFS calculates shortest Manhattan path distances to all reachable cells in < 0.2 ms.
+- Validated that:
+  1. Player spawn `(1, 1)` is on a walkable floor tile.
+  2. Exit portal `(cols - 2, rows - 2)` is reachable from player spawn (`dist !== -1`).
+  3. Enemy spawn `(cols - 2, 1)` is reachable from player spawn (`dist !== -1`).
+  4. Every required relic is reachable from player spawn (`dist > 0`).
+  5. Placed relic count exactly equals `config.requiredRelics`.
+  6. No relics placed on walls, outside bounds, on player spawn, on enemy start, or on exit portal.
+  7. Compatible with 4-directional A* pathfinding.
+
+#### 6. Relic Placement Changes
+- Filtered candidate cells to only include reachable floor tiles excluding player spawn, enemy spawn, exit portal, and tiles immediately adjacent to player (`abs(dx) + abs(dy) >= 2`).
+- Shuffled candidates with seeded Fisher-Yates PRNG.
+- Applied a greedy anti-clustering distance filter:
+  - Attempted selection with minimum Manhattan spacing `spacing = 3` between any two relics.
+  - Relaxed to `spacing = 2` if insufficient candidates met spacing 3.
+  - Relaxed to `spacing = 1` (any distinct reachable floor tile) if necessary.
+- Guarantees even dispersion across the labyrinth without clumping relics in a single corridor.
+
+#### 7. Player, Hunter, and Exit Placement Changes
+- Player spawn fixed at `(1, 1)` (top-left).
+- Hunter spawn fixed at `(cols - 2, 1)` (top-right).
+- Exit portal fixed at `(cols - 2, rows - 2)` (bottom-right).
+- In odd-dimension grids, all three positions are odd coordinates and guaranteed DFS tree nodes.
+- Initial Manhattan distance between player and hunter is 12 tiles (15×11), 16 tiles (19×13), or 20 tiles (23×15), completely eliminating immediate unfair spawn collisions.
+- Exit portal is placed 20 to 32 Manhattan tiles away from player spawn.
+
+#### 8. Visual Themes and Deterministic Selection
+- Defined 4 distinct visual themes in `MAZE_THEMES`:
+  1. `ANCIENT_RUINS` (Level 1, 5, ...): Classic slate/masonry stone, periodic runic perimeter seals, warm amber/gold ambient motes (`#ffe082`, `#ffb74d`).
+  2. `MOSSY_CATACOMBS` (Level 2, 6, ...): Overgrown damp catacomb passages, higher frequency of mossy floor tiles (`TILE.FLOOR_MOSSY`), vivid emerald ambient motes (`#81c784`, `#aed581`).
+  3. `FORGOTTEN_TEMPLE` (Level 3, 7, ...): Mystic sanctuary halls with glyph floor circles (`TILE.FLOOR_GLYPH`) and runic walls (`TILE.WALL_RUNIC`), cyan ethereal motes (`#80deea`, `#4dd0e1`).
+  4. `SHADOWED_DEPTHS` (Level 4, 8, ...): Abyssal dark passages coinciding with the Level 4 AI Hunter activation reveal, cracked walls, deep violet motes (`#b39ddb`, `#9575cd`), and deeper vignette tinting.
+- **Strict Decoupling from Gameplay Logic**:
+  - Themes only assign decorative visual tile variants (`TILE.WALL_RUNIC`, `TILE.WALL_CRACKED` vs `TILE.WALL`; `TILE.FLOOR_MOSSY`, `TILE.FLOOR_GLYPH` vs `TILE.FLOOR`) and ambient particle/vignette colors in `renderer.js`.
+  - Collision methods `isWall(x, y)` and `isWalkable(x, y)` treat all wall variants as solid and all floor variants as walkable.
+  - A* pathfinding and enemy logic remain 100% unaffected by theme selection.
+
+#### 9. Files Modified and Why
+- `js/maze.js`: Added `MAZE_THEMES`, updated `loadLevel(level, customSeed)` to support deterministic seeding, seeded odd-coordinate DFS start, anti-clustering relic placement, single-pass BFS reachability validation, deterministic retry loop, and safe milestone fallback. Exported `{ Maze, TILE, MAZE_THEMES }`.
+- `js/renderer.js`: Updated `renderMaze` to pass `maze.theme` into vignette tinting and `renderAmbientMotes` to color ambient dust particles based on the active theme palette.
+- `test_maze_generation.js`: Created dedicated automated test suite verifying deterministic seeding, seed variety, connectivity, relics, themes, fallback behavior, difficulty formulas, and performance benchmarks.
+
+#### 10. Automated Test Commands and Actual Results
+- Command: `node test_maze_generation.js`
+  - Result: **ALL 3819/3819 TESTS PASSED SUCCESSFULLY (0 FAILURES)**
+- Command: `node test_progression.js`
+  - Result: **ALL 7/7 TESTS PASSED WITH ZERO ERRORS**
+- Command: `node test_ai_intelligence.js`
+  - Result: **ALL 369/369 TESTS PASSED SUCCESSFULLY (0 FAILURES)**
+- Command: `node test_hunter_modes.js`
+  - Result: **ALL 6/6 TESTS PASSED WITH 0 ERRORS**
+- Command: `node test_astar.js`
+  - Result: **ALL 7/7 TESTS PASSED WITH 0 ERRORS**
+- Command: `node test_engine.js`
+  - Result: **ALL 5/5 TESTS PASSED WITH 0 ERRORS**
+- Combined Regression Total: 4,213 test assertions executed across 6 test suites, **100% passing with 0 regressions**.
+
+#### 11. Generation Benchmark Conditions and Measured Results
+- Test environment: Node.js v20.18.0, Windows x64.
+- Total Mazes Generated: 150 mazes across all milestone sizes (15×11, 19×13, 23×15).
+- Total Elapsed Generation Time: 15.09 ms (Wall-clock: 15 ms).
+- Average Generation Time: **0.101 ms per maze** (well below the 2.0 ms budget).
+- Maximum Generation Time: **1.365 ms** (well below the 15.0 ms threshold).
+- Number of Retries Encountered: 0 (100% of generated mazes passed validation on attempt 0).
+
+#### 12. Browser Verification Results
+- Ran and verified in browser on `http://localhost:3000`:
+  1. Started Level 1: HUD confirmed `LEVEL 1`, `RELICS 0/5`, `LIVES 3`, `SCORE 0`.
+  2. Preserved restart: Pressed `KeyR`, verified layout and seed remained identical.
+  3. Controls and relics: Moved player, collected relic, confirmed HUD updated to `RELICS 1/5`.
+  4. Inspected all 4 visual themes:
+     - Level 1: Ancient Ruins (warm gold motes).
+     - Level 2: Mossy Catacombs (emerald motes).
+     - Level 3: Forgotten Temple (cyan motes).
+     - Level 4: Shadowed Depths (violet motes, AI Activation reveal modal triggered, A* trajectory active).
+     - Level 5: Ancient Ruins (retains A* mode).
+  5. Menu and settings: Tested AI Lab, How to Play, Settings modal (sound, CRT toggle, volume, shake), and pause/resume.
+  6. Inspected browser console: **0 errors, 0 warnings**.
+  7. Offline confirmation: Verified all procedural generation and audio run locally without network requests.
+
+#### 13. Known Limitations and Tests Not Performed
+- Generation is optimized for the established dimensions (up to 23×15); larger dimensions (e.g. 100×100) were not benchmarked as the game design caps at 23×15.
+- Themes currently use procedural pixel shaders and tile variations; no external texture packs or sprite sheets are downloaded (by offline design).
+
+#### 14. Fallback Behavior and Retry Limits
+- The retry loop executes up to `MAX_RETRIES = 10` deterministic retry attempts with seed derived as `((baseSeed + attempt * 7919) >>> 0)`.
+- If all 10 retries fail, `_loadFallbackMilestone(config, theme)` loads a guaranteed serpentine milestone layout of the exact requested dimensions, with guaranteed 100% BFS reachability and exact required relic counts.
+
+#### 15. Next Recommended Task
+- Implement an audio tension system where hunter drone frequencies and pulse tempo dynamically scale based on proximity to the player in A* mode.
+
+#### 16. Updated Last-Modified Date
+- 2026-10-15T11:51:00+05:30.
+
+
 

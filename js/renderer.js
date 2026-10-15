@@ -767,15 +767,16 @@ class GameRenderer {
 
     ctx.restore(); // Restore maze translate
 
-    // Atmospheric Ruin Vignette / Fog Overlay
+    // Atmospheric Ruin Vignette / Fog Overlay (subtly tinted by maze theme)
     const vig = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.35, w / 2, h / 2, Math.max(w, h) * 0.72);
     vig.addColorStop(0, 'rgba(9, 14, 19, 0)');
-    vig.addColorStop(1, 'rgba(4, 7, 10, 0.65)');
+    const vigColor = (maze && maze.theme && maze.theme.vignetteColor) ? maze.theme.vignetteColor : 'rgba(4, 7, 10, 0.65)';
+    vig.addColorStop(1, vigColor);
     ctx.fillStyle = vig;
     ctx.fillRect(0, 0, w, h);
 
-    // Update and draw ambient motes in maze
-    this.renderAmbientMotes(ctx, w, h, time);
+    // Update and draw ambient motes in maze (tinted to current theme palette)
+    this.renderAmbientMotes(ctx, w, h, time, maze ? maze.theme : null);
 
     ctx.restore(); // Restore shake
 
@@ -1016,7 +1017,7 @@ class GameRenderer {
     ctx.fillRect(0, 0, w * 0.55, h);
   }
 
-  renderAmbientMotes(ctx, w, h, time) {
+  renderAmbientMotes(ctx, w, h, time, theme) {
     this.ambientMotes.forEach(m => {
       m.y += m.vy * 0.05;
       m.x += m.vx * 0.05 + Math.sin(time + m.y * 0.02) * 0.3;
@@ -1029,7 +1030,11 @@ class GameRenderer {
       if (m.x > w) m.x = 0;
 
       const pAlpha = m.alpha * (0.6 + Math.sin(time * m.pulseSpeed) * 0.4);
-      ctx.fillStyle = m.color;
+      let moteColor = m.color;
+      if (theme && theme.moteColors && theme.moteColors.length > 0) {
+        moteColor = m.size === 1 ? theme.moteColors[0] : theme.moteColors[1 % theme.moteColors.length];
+      }
+      ctx.fillStyle = moteColor;
       ctx.globalAlpha = Math.max(0, Math.min(1, pAlpha));
       ctx.fillRect(Math.floor(m.x), Math.floor(m.y), m.size, m.size);
     });
