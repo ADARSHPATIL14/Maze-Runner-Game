@@ -881,3 +881,120 @@ input[type="range"] {
   100% { background-position: -100% 0; }
 }
 
+/* ==========================================================================
+   TASK 7: LEVEL TRANSITION, RECORDS ARCHIVE & SEED TAG STYLES
+   ========================================================================== */
+
+.pause-seed-tag {
+  font-size: 7.5px;
+  letter-spacing: 1px;
+  color: #5d7a91;
+  background: #080d14;
+  border: 1px solid #14202c;
+  padding: 4px 8px;
+  display: inline-block;
+  margin-bottom: 18px;
+}
+
+.transition-card {
+  border-color: var(--color-cyan);
+  box-shadow: 0 0 24px rgba(0, 240, 255, 0.25);
+  width: 380px;
+  padding: 32px 24px;
+}
+
+.transition-spinner {
+  font-size: 16px;
+  color: var(--color-cyan);
+  animation: spinRunic 1.2s infinite ease-in-out;
+  margin-bottom: 12px;
+}
+
+@keyframes spinRunic {
+  0% { transform: rotate(0deg) scale(0.9); opacity: 0.6; }
+  50% { transform: rotate(180deg) scale(1.15); opacity: 1; }
+  100% { transform: rotate(360deg) scale(0.9); opacity: 0.6; }
+}
+
+.transition-bar {
+  width: 100%;
+  height: 4px;
+  background-color: #14202c;
+  margin-top: 18px;
+  overflow: hidden;
+}
+
+.transition-bar-fill {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, #00f0ff, #00e676, #00f0ff);
+  background-size: 200% 100%;
+  animation: pulseBarSweep 0.8s linear infinite;
+}
+
+/* Records Screen Styles */
+.records-overview {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.overview-box {
+  flex: 1;
+  background: #080d14;
+  border: 1px solid #192736;
+  padding: 12px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.ov-label {
+  font-size: 7.5px;
+  letter-spacing: 1px;
+  color: #647f93;
+  text-transform: uppercase;
+}
+
+.ov-val {
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.records-table-container {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid #182635;
+  background: #070b10;
+  margin-bottom: 16px;
+}
+
+.records-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 8px;
+  text-align: left;
+}
+
+.records-table th {
+  background-color: #0e1722;
+  color: #6e889c;
+  padding: 8px 10px;
+  border-bottom: 1px solid #1c2c3d;
+  font-weight: normal;
+  letter-spacing: 1px;
+}
+
+.records-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #121b24;
+  color: #cbd5e1;
+}
+
+.records-table tr:hover {
+  background-color: #0e1722;
+}
+
+

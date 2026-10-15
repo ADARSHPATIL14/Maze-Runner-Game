@@ -34,6 +34,9 @@
           <button id="btn-play" class="menu-btn primary">
             <span class="btn-icon">▶</span> PLAY
           </button>
+          <button id="btn-records" class="menu-btn">
+            <span class="btn-icon">🏆</span> RECORDS
+          </button>
           <button id="btn-ai-lab" class="menu-btn">
             <span class="btn-icon">⚗</span> AI LAB
           </button>
@@ -83,6 +86,7 @@
       <div class="modal-card">
         <h2 class="modal-title">MISSION PAUSED</h2>
         <div class="modal-text">AI Hunter suspended in cryo-stasis.</div>
+        <div id="pause-seed-tag" class="pause-seed-tag">SECTOR SEED: #10049</div>
         <div class="modal-actions">
           <button id="btn-resume" class="modal-btn primary">RESUME (P)</button>
           <button id="btn-pause-restart" class="modal-btn">RESTART RUN</button>
@@ -108,19 +112,37 @@
       </div>
     </div>
 
-    <!-- LEVEL VICTORY MODAL OVERLAY -->
+    <!-- LEVEL VICTORY / COMPLETION SUMMARY MODAL OVERLAY -->
     <div id="victory-screen" class="modal-overlay hidden">
       <div class="modal-card success">
-        <h2 class="modal-title text-success">MAZE ESCAPED!</h2>
-        <div class="modal-subtitle">Emerald portal activated. AI Hunter outmaneuvered.</div>
+        <h2 class="modal-title text-success">LEVEL COMPLETE!</h2>
+        <div id="vic-subtitle" class="modal-subtitle">Emerald portal activated. AI Hunter outmaneuvered.</div>
         <div class="modal-stats">
-          <div class="stat-row"><span>MAZE SCORE:</span><span id="vic-score" class="stat-val">0</span></div>
-          <div class="stat-row"><span>TIME BONUS:</span><span id="vic-bonus" class="stat-val">0</span></div>
-          <div class="stat-row"><span>TOTAL SCORE:</span><span id="vic-total" class="stat-val highlight">0</span></div>
+          <div class="stat-row"><span>SECTOR CLEARED:</span><span id="vic-level" class="stat-val highlight">LEVEL 01</span></div>
+          <div class="stat-row"><span>RELICS RECOVERED:</span><span id="vic-relics" class="stat-val">5/5</span></div>
+          <div class="stat-row"><span>COMPLETION TIME:</span><span id="vic-time" class="stat-val">00:14.250</span></div>
+          <div class="stat-row"><span>SECTOR RECORD:</span><span id="vic-best-time" class="stat-val highlight">00:14.250</span></div>
+          <div class="stat-row"><span>HUNTER ENCOUNTERS:</span><span id="vic-encounters" class="stat-val">0</span></div>
+          <div class="stat-row"><span>SECTOR SCORE:</span><span id="vic-score" class="stat-val">500</span></div>
+          <div class="stat-row"><span>TIME BONUS:</span><span id="vic-bonus" class="stat-val">+820</span></div>
+          <div class="stat-row"><span>TOTAL SCORE:</span><span id="vic-total" class="stat-val highlight">1320</span></div>
         </div>
         <div class="modal-actions">
-          <button id="btn-victory-next" class="modal-btn primary">NEXT RUN</button>
-          <button id="btn-victory-menu" class="modal-btn">MAIN MENU</button>
+          <button id="btn-victory-next" class="modal-btn primary">NEXT LEVEL (ENTER)</button>
+          <button id="btn-victory-replay" class="modal-btn">REPLAY LEVEL (R)</button>
+          <button id="btn-victory-menu" class="modal-btn">MAIN MENU (ESC)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- LEVEL TRANSITION OVERLAY -->
+    <div id="level-transition-screen" class="modal-overlay hidden">
+      <div class="modal-card transition-card">
+        <div class="transition-spinner">◆</div>
+        <h2 id="trans-title" class="modal-title cyan-text">PREPARING LEVEL 02...</h2>
+        <div id="trans-theme" class="modal-subtitle">[MOSSY CATACOMBS]</div>
+        <div class="transition-bar">
+          <div class="transition-bar-fill"></div>
         </div>
       </div>
     </div>
@@ -158,6 +180,7 @@
               <div class="readout-row"><span class="r-label">EXPLORED NODES:</span> <span id="telemetry-nodes" class="r-val">0</span></div>
               <div class="readout-row"><span class="r-label">COMPUTE DURATION:</span> <span id="telemetry-duration" class="r-val">0.00 ms</span></div>
               <div class="readout-row"><span class="r-label">ACTIVE ROUTE LENGTH:</span> <span id="telemetry-path" class="r-val">0 steps</span></div>
+              <div class="readout-row"><span class="r-label">SECTOR SEED:</span> <span id="telemetry-seed" class="r-val highlight">#10049</span></div>
               <div class="readout-row"><span class="r-label">HULL INTEGRITY:</span> <span class="r-val text-danger">ARMORED OBSIDIAN CHASSIS</span></div>
             </div>
 
@@ -293,18 +316,63 @@
           <button id="btn-back-settings" class="modal-btn primary">SAVE & RETURN</button>
         </div>
       </div>
+    <!-- EXPEDITION RECORDS & ARCHIVES MODAL -->
+    <div id="records-screen" class="modal-overlay hidden">
+      <div class="terminal-card">
+        <div class="terminal-header">
+          <div class="terminal-title">🏆 EXPEDITION ARCHIVES & BEST TIMES</div>
+          <button id="btn-close-records" class="terminal-close">✕</button>
+        </div>
+        <div class="terminal-body">
+          <div class="records-overview">
+            <div class="overview-box">
+              <span class="ov-label">HIGHEST SECTOR</span>
+              <span id="rec-highest-level" class="ov-val cyan-text">LEVEL 01</span>
+            </div>
+            <div class="overview-box">
+              <span class="ov-label">SECTORS CLEARED</span>
+              <span id="rec-total-cleared" class="ov-val amber-text">0</span>
+            </div>
+            <div class="overview-box">
+              <span class="ov-label">BEST RUN SCORE</span>
+              <span id="rec-best-run-score" class="ov-val highlight">0</span>
+            </div>
+          </div>
+
+          <div class="terminal-section-title">SECTOR CLEAR ARCHIVES</div>
+          <div class="records-table-container">
+            <table class="records-table">
+              <thead>
+                <tr>
+                  <th>SECTOR</th>
+                  <th>THEME</th>
+                  <th>BEST TIME</th>
+                  <th>RECORD SCORE</th>
+                </tr>
+              </thead>
+              <tbody id="records-table-body">
+                <!-- Dynamically generated rows -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="terminal-footer">
+          <button id="btn-reset-records" class="modal-btn danger-small">CLEAR ARCHIVE</button>
+          <button id="btn-back-records" class="modal-btn primary">RETURN TO MENU</button>
+        </div>
+      </div>
     </div>
 
   </div>
 
   <!-- Scripts in dependency order (with version parameter for zero-cache local development) -->
-  <script src="js/difficulty.js?v=2.3"></script>
-  <script src="js/audio.js?v=2.3"></script>
-  <script src="js/maze.js?v=2.3"></script>
-  <script src="js/pathfinding.js?v=2.3"></script>
-  <script src="js/player.js?v=2.3"></script>
-  <script src="js/enemy.js?v=2.3"></script>
-  <script src="js/renderer.js?v=2.3"></script>
-  <script src="js/main.js?v=2.3"></script>
+  <script src="js/difficulty.js?v=2.4"></script>
+  <script src="js/audio.js?v=2.4"></script>
+  <script src="js/maze.js?v=2.4"></script>
+  <script src="js/pathfinding.js?v=2.4"></script>
+  <script src="js/player.js?v=2.4"></script>
+  <script src="js/enemy.js?v=2.4"></script>
+  <script src="js/renderer.js?v=2.4"></script>
+  <script src="js/main.js?v=2.4"></script>
 </body>
 </html>

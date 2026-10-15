@@ -65,7 +65,8 @@ You can also simply double-click and open `index.html` directly in any modern br
 | **Move Left** | `A` | `Left Arrow (←)` |
 | **Move Right** | `D` | `Right Arrow (→)` |
 | **Pause / Resume** | `P` | `Escape` |
-| **Quick Restart** | `R` | — |
+| **Quick Restart / Replay** | `R` | — |
+| **Next Level (on victory)** | `Enter` | `Space` |
 | **Toggle AI Path Vision** | `H` | HUD Button (`👁 AI PATH`) |
 
 ---
@@ -74,24 +75,26 @@ You can also simply double-click and open `index.html` directly in any modern br
 
 ```
 hackit/
-├── index.html         # Semantic game layout, HUD, menus, and retro terminal overlays
-├── style.css          # Pixel-perfect styles, CRT scanline effects, and retro modals
+├── index.html                  # Semantic game layout, HUD, menus, and retro terminal overlays
+├── style.css                   # Pixel-perfect styles, CRT scanline effects, and retro modals
 ├── js/
-│   ├── audio.js       # Web Audio API 8-bit synthesizer (footsteps, pickups, hit, fanfare)
-│   ├── maze.js        # Grid data, tile definitions, wall collisions, and relic trackers
-│   ├── pathfinding.js # Standalone A* (Manhattan/Euclidean) & BFS heuristic pathfinding engine
-│   ├── player.js      # Grid-based movement with sub-pixel interpolation & input buffering
-│   ├── enemy.js       # AI Hunter entity with autonomous path recalculation & telemetry
-│   ├── renderer.js    # Procedural 32x32 sprites, holographic trajectory lasers, canvas scenes
-│   └── main.js        # Master game loop, state machine, input router, and HUD updates
-├── server.js               # Lightweight Node.js local dev server
-├── test_ai_intelligence.js # Comprehensive Task 5 verification suite (369 assertions)
-├── test_hunter_modes.js    # Task 4 Basic Hunter & AI reveal test suite
-├── test_progression.js     # Task 3 Linear level difficulty progression test suite
-├── test_astar.js           # Task 2 A* pathfinding verification suite
-├── test_engine.js          # Headless engine verification suite
-├── Progress.md             # Detailed engineering log, benchmarks, and roadmap
-└── README.md               # Project documentation
+│   ├── audio.js                # Web Audio API 8-bit synthesizer (footsteps, pickups, hit, fanfare)
+│   ├── maze.js                 # Grid data, tile definitions, wall collisions, and relic trackers
+│   ├── pathfinding.js          # Standalone A* (Manhattan/Euclidean) & BFS heuristic pathfinding engine
+│   ├── player.js               # Grid-based movement with sub-pixel interpolation & input buffering
+│   ├── enemy.js                # AI Hunter entity with autonomous path recalculation & telemetry
+│   ├── renderer.js             # Procedural 32x32 sprites, holographic trajectory lasers, canvas scenes
+│   └── main.js                 # Master game loop, state machine, input router, and HUD updates
+├── server.js                   # Lightweight Node.js local dev server
+├── test_progression_system.js  # Task 7 Progression, Level Completion & Replay test suite (119 assertions)
+├── test_maze_generation.js     # Task 6 Procedural maze variety & themes test suite (3,819 assertions)
+├── test_ai_intelligence.js     # Comprehensive Task 5 verification suite (369 assertions)
+├── test_hunter_modes.js        # Task 4 Basic Hunter & AI reveal test suite
+├── test_progression.js         # Task 3 Linear level difficulty progression test suite
+├── test_astar.js               # Task 2 A* pathfinding verification suite
+├── test_engine.js              # Headless engine verification suite
+├── Progress.md                 # Detailed engineering log, benchmarks, and roadmap
+└── README.md                   # Project documentation
 ```
 
 ---

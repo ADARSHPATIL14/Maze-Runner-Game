@@ -1,6 +1,7 @@
 /**
  * main.js - Master Game Controller & State Machine
- * Coordinates input, game loop, entity interactions, audio, and UI transitions.
+ * Coordinates input, game loop, entity interactions, audio, level progression,
+ * completion summaries, persistent records, and UI transitions.
  */
 
 const STATE = {
@@ -12,16 +13,74 @@ const STATE = {
   AI_REVEAL: 'AI_REVEAL'
 };
 
+const RECORDS_STORAGE_KEY = 'maze_runner_records_v1';
+
+/**
+ * Default empty records data structure
+ */
+function getDefaultRecords() {
+  return {
+    version: 1,
+    highestLevel: 1,
+    totalCompletedLevels: 0,
+    bestRunScore: 0,
+    bestTimes: {},  // { [level]: timeMs }
+    bestScores: {}  // { [level]: score }
+  };
+}
+
+/**
+ * Validate and sanitize loaded record data
+ */
+function validateAndNormalizeRecords(data) {
+  if (typeof data !== 'object' || data === null || data.version !== 1) {
+    return getDefaultRecords();
+  }
+  const clean = {
+    version: 1,
+    highestLevel: Number.isInteger(data.highestLevel) && data.highestLevel >= 1 ? data.highestLevel : 1,
+    totalCompletedLevels: Number.isInteger(data.totalCompletedLevels) && data.totalCompletedLevels >= 0 ? data.totalCompletedLevels : 0,
+    bestRunScore: Number.isInteger(data.bestRunScore) && data.bestRunScore >= 0 ? data.bestRunScore : 0,
+    bestTimes: {},
+    bestScores: {}
+  };
+
+  if (typeof data.bestTimes === 'object' && data.bestTimes !== null) {
+    for (const [k, v] of Object.entries(data.bestTimes)) {
+      const lvl = parseInt(k, 10);
+      if (Number.isInteger(lvl) && lvl >= 1 && typeof v === 'number' && v > 0) {
+        clean.bestTimes[lvl] = Math.round(v);
+      }
+    }
+  }
+
+  if (typeof data.bestScores === 'object' && data.bestScores !== null) {
+    for (const [k, v] of Object.entries(data.bestScores)) {
+      const lvl = parseInt(k, 10);
+      if (Number.isInteger(lvl) && lvl >= 1 && typeof v === 'number' && v >= 0) {
+        clean.bestScores[lvl] = Math.round(v);
+      }
+    }
+  }
+
+  return clean;
+}
+
 class GameController {
   constructor() {
     this.canvas = document.getElementById('game-canvas');
     this.state = STATE.MENU;
 
     // Subsystems
-    this.maze = new window.Maze();
-    this.player = new window.Player(this.maze.playerStart.x, this.maze.playerStart.y);
-    this.enemy = new window.Enemy(this.maze.enemyStart.x, this.maze.enemyStart.y);
-    this.renderer = new window.GameRenderer(this.canvas);
+    const MazeClass = (typeof window !== 'undefined' && window.Maze) ? window.Maze : require('./maze.js').Maze;
+    const PlayerClass = (typeof window !== 'undefined' && window.Player) ? window.Player : require('./player.js');
+    const EnemyClass = (typeof window !== 'undefined' && window.Enemy) ? window.Enemy : require('./enemy.js');
+    const RendererClass = (typeof window !== 'undefined' && window.GameRenderer) ? window.GameRenderer : require('./renderer.js');
+
+    this.maze = new MazeClass();
+    this.player = new PlayerClass(this.maze.playerStart.x, this.maze.playerStart.y);
+    this.enemy = new EnemyClass(this.maze.enemyStart.x, this.maze.enemyStart.y);
+    this.renderer = this.canvas ? new RendererClass(this.canvas) : null;
 
     // Gameplay Statistics
     this.score = 0;
@@ -29,14 +88,26 @@ class GameController {
     this.maxLives = 3;
     this.timer = 0;
     this.level = 1;
+    this.currentSeed = null;
+
+    // Encounter and Proximity telemetry
+    this.hunterEncounters = 0;
+    this._inProximityZone = false;
+    this.isLevelTransitioning = false;
 
     // AI Hunter Level 4 Reveal session tracking
     this.hasShownAiActivation = false;
     this.revealTimer = 0;
     this.revealDuration = 2.0;
 
-    // Load persisted best score (seed with 1240 matching reference image)
-    this.bestScore = parseInt(localStorage.getItem('maze_runner_best_score') || '1240', 10);
+    // Versioned Persistent Records
+    this.records = this.loadRecords();
+    this.bestScore = Math.max(
+      this.records.bestRunScore || 0,
+      parseInt(this.getLegacyStorage('maze_runner_best_score') || '1240', 10)
+    );
+    this.records.bestRunScore = Math.max(this.records.bestRunScore, this.bestScore);
+    this.saveRecords();
 
     // Settings
     this.settings = {
@@ -62,16 +133,54 @@ class GameController {
       hudPauseBtn: document.getElementById('hud-pause-btn'),
       menuBestScore: document.getElementById('menu-best-score'),
       pauseScreen: document.getElementById('pause-screen'),
+      pauseSeedTag: document.getElementById('pause-seed-tag'),
       gameOverScreen: document.getElementById('game-over-screen'),
       victoryScreen: document.getElementById('victory-screen'),
+      transitionScreen: document.getElementById('level-transition-screen'),
+      recordsScreen: document.getElementById('records-screen'),
+      recHighestLevel: document.getElementById('rec-highest-level'),
+      recTotalCleared: document.getElementById('rec-total-cleared'),
+      recBestRunScore: document.getElementById('rec-best-run-score'),
       aiActivationScreen: document.getElementById('ai-activation-screen'),
       aiLabScreen: document.getElementById('ai-lab-screen'),
       howToPlayScreen: document.getElementById('how-to-play-screen'),
       settingsScreen: document.getElementById('settings-screen'),
-      crtOverlay: document.getElementById('crt-overlay')
+      crtOverlay: document.getElementById('crt-overlay'),
+      telemetrySeed: document.getElementById('telemetry-seed')
     };
 
     this.init();
+  }
+
+  getLegacyStorage(key) {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        return localStorage.getItem(key);
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  loadRecords() {
+    try {
+      if (typeof localStorage === 'undefined') return getDefaultRecords();
+      const raw = localStorage.getItem(RECORDS_STORAGE_KEY);
+      if (!raw) return getDefaultRecords();
+      return validateAndNormalizeRecords(JSON.parse(raw));
+    } catch (e) {
+      return getDefaultRecords();
+    }
+  }
+
+  saveRecords() {
+    try {
+      if (typeof localStorage === 'undefined') return false;
+      localStorage.setItem(RECORDS_STORAGE_KEY, JSON.stringify(this.records));
+      return true;
+    } catch (e) {
+      console.warn('Failed to save records to localStorage:', e);
+      return false;
+    }
   }
 
   init() {
@@ -79,9 +188,11 @@ class GameController {
     this.bindEvents();
     this.bindButtons();
 
-    // Start requestAnimationFrame loop
-    this.lastTime = performance.now();
-    requestAnimationFrame(this.gameLoop.bind(this));
+    // Start requestAnimationFrame loop if canvas and rAF present
+    if (this.canvas && typeof requestAnimationFrame === 'function') {
+      this.lastTime = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      requestAnimationFrame(this.gameLoop.bind(this));
+    }
   }
 
   updateBestScoreDisplay() {
@@ -93,7 +204,11 @@ class GameController {
   saveBestScore() {
     if (this.score > this.bestScore) {
       this.bestScore = this.score;
-      localStorage.setItem('maze_runner_best_score', this.bestScore.toString());
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('maze_runner_best_score', this.bestScore.toString());
+        }
+      } catch (e) {}
       this.updateBestScoreDisplay();
     }
   }
@@ -121,7 +236,6 @@ class GameController {
   }
 
   updatePlayerHeldDirection() {
-    // Find the most recently pressed active direction
     let activeDir = null;
     for (const code of this.keysHeld) {
       const dir = this.getDirectionFromCode(code);
@@ -132,12 +246,11 @@ class GameController {
 
   bindEvents() {
     this.keysHeld = new Set();
+    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
 
     window.addEventListener('keydown', e => {
-      // Audio unlock on initial user gesture
       if (window.sound) window.sound.ensureContext();
 
-      // Navigation / Controls when playing
       if (this.state === STATE.PLAYING) {
         const moveDir = this.getDirectionFromCode(e.code);
         if (moveDir) {
@@ -162,6 +275,9 @@ class GameController {
         if (e.code === 'KeyP' || e.code === 'Escape') {
           e.preventDefault();
           this.togglePause();
+        } else if (e.code === 'KeyR') {
+          e.preventDefault();
+          this.restartLevel();
         }
       } else if (this.state === STATE.GAMEOVER) {
         if (e.code === 'KeyR' || e.code === 'Enter' || e.code === 'Space') {
@@ -172,6 +288,12 @@ class GameController {
         if (e.code === 'Enter' || e.code === 'Space') {
           e.preventDefault();
           this.nextLevel();
+        } else if (e.code === 'KeyR') {
+          e.preventDefault();
+          this.replayLevel();
+        } else if (e.code === 'Escape' || e.code === 'KeyM') {
+          e.preventDefault();
+          this.returnToMenu();
         }
       }
     });
@@ -188,65 +310,71 @@ class GameController {
 
   bindButtons() {
     // Menu navigation
-    const playBtn = document.getElementById('btn-play');
-    if (playBtn) {
-      playBtn.addEventListener('click', () => {
-        if (window.sound) window.sound.playClick();
-        this.startGame();
-      });
-    }
+    document.getElementById('btn-play')?.addEventListener('click', () => {
+      if (window.sound) window.sound.playClick();
+      this.startGame();
+    });
 
-    const aiLabBtn = document.getElementById('btn-ai-lab');
-    if (aiLabBtn) {
-      aiLabBtn.addEventListener('click', () => {
-        if (window.sound) window.sound.playClick();
-        this.updateAiLabTelemetry();
-        this.ui.aiLabScreen.classList.remove('hidden');
-      });
-    }
+    document.getElementById('btn-records')?.addEventListener('click', () => {
+      if (window.sound) window.sound.playClick();
+      this.openRecordsScreen();
+    });
 
-    const howBtn = document.getElementById('btn-how-to-play');
-    if (howBtn) {
-      howBtn.addEventListener('click', () => {
-        if (window.sound) window.sound.playClick();
-        this.ui.howToPlayScreen.classList.remove('hidden');
-      });
-    }
+    document.getElementById('btn-ai-lab')?.addEventListener('click', () => {
+      if (window.sound) window.sound.playClick();
+      this.updateAiLabTelemetry();
+      this.ui.aiLabScreen?.classList.remove('hidden');
+    });
 
-    const setBtn = document.getElementById('btn-settings');
-    if (setBtn) {
-      setBtn.addEventListener('click', () => {
-        if (window.sound) window.sound.playClick();
-        this.ui.settingsScreen.classList.remove('hidden');
-      });
-    }
+    document.getElementById('btn-how-to-play')?.addEventListener('click', () => {
+      if (window.sound) window.sound.playClick();
+      this.ui.howToPlayScreen?.classList.remove('hidden');
+    });
+
+    document.getElementById('btn-settings')?.addEventListener('click', () => {
+      if (window.sound) window.sound.playClick();
+      this.ui.settingsScreen?.classList.remove('hidden');
+    });
 
     // Close buttons for modals
+    document.getElementById('btn-close-records')?.addEventListener('click', () => {
+      if (window.sound) window.sound.playClick();
+      this.ui.recordsScreen?.classList.add('hidden');
+    });
+    document.getElementById('btn-back-records')?.addEventListener('click', () => {
+      if (window.sound) window.sound.playClick();
+      this.ui.recordsScreen?.classList.add('hidden');
+    });
+    document.getElementById('btn-reset-records')?.addEventListener('click', () => {
+      if (window.sound) window.sound.playClick();
+      this.resetAllRecords();
+    });
+
     document.getElementById('btn-close-ai-lab')?.addEventListener('click', () => {
       if (window.sound) window.sound.playClick();
-      this.ui.aiLabScreen.classList.add('hidden');
+      this.ui.aiLabScreen?.classList.add('hidden');
     });
     document.getElementById('btn-back-ai-lab')?.addEventListener('click', () => {
       if (window.sound) window.sound.playClick();
-      this.ui.aiLabScreen.classList.add('hidden');
+      this.ui.aiLabScreen?.classList.add('hidden');
     });
 
     document.getElementById('btn-close-how')?.addEventListener('click', () => {
       if (window.sound) window.sound.playClick();
-      this.ui.howToPlayScreen.classList.add('hidden');
+      this.ui.howToPlayScreen?.classList.add('hidden');
     });
     document.getElementById('btn-back-how')?.addEventListener('click', () => {
       if (window.sound) window.sound.playClick();
-      this.ui.howToPlayScreen.classList.add('hidden');
+      this.ui.howToPlayScreen?.classList.add('hidden');
     });
 
     document.getElementById('btn-close-settings')?.addEventListener('click', () => {
       if (window.sound) window.sound.playClick();
-      this.ui.settingsScreen.classList.add('hidden');
+      this.ui.settingsScreen?.classList.add('hidden');
     });
     document.getElementById('btn-back-settings')?.addEventListener('click', () => {
       if (window.sound) window.sound.playClick();
-      this.ui.settingsScreen.classList.add('hidden');
+      this.ui.settingsScreen?.classList.add('hidden');
     });
 
     // Pause screen buttons
@@ -259,8 +387,9 @@ class GameController {
     document.getElementById('btn-game-over-restart')?.addEventListener('click', () => this.restartLevel());
     document.getElementById('btn-game-over-menu')?.addEventListener('click', () => this.returnToMenu());
 
-    // Victory buttons
+    // Victory / Level Complete buttons
     document.getElementById('btn-victory-next')?.addEventListener('click', () => this.nextLevel());
+    document.getElementById('btn-victory-replay')?.addEventListener('click', () => this.replayLevel());
     document.getElementById('btn-victory-menu')?.addEventListener('click', () => this.returnToMenu());
 
     // Settings Controls
@@ -287,7 +416,7 @@ class GameController {
     if (toggleCrtBtn) {
       toggleCrtBtn.addEventListener('click', () => {
         this.settings.crt = !this.settings.crt;
-        this.ui.crtOverlay.classList.toggle('disabled', !this.settings.crt);
+        this.ui.crtOverlay?.classList.toggle('disabled', !this.settings.crt);
         toggleCrtBtn.textContent = this.settings.crt ? 'ENABLED' : 'DISABLED';
         toggleCrtBtn.classList.toggle('active', this.settings.crt);
         if (window.sound) window.sound.playClick();
@@ -307,9 +436,7 @@ class GameController {
     const resetScoreBtn = document.getElementById('btn-reset-score');
     if (resetScoreBtn) {
       resetScoreBtn.addEventListener('click', () => {
-        this.bestScore = 0;
-        localStorage.setItem('maze_runner_best_score', '0');
-        this.updateBestScoreDisplay();
+        this.resetAllRecords();
         if (window.sound) window.sound.playClick();
       });
     }
@@ -336,7 +463,7 @@ class GameController {
   }
 
   /* -------------------------------------------------------------
-   * STATE TRANSITIONS
+   * STATE TRANSITIONS & LEVEL FLOW
    * ------------------------------------------------------------- */
   updateAiLabTelemetry() {
     if (!this.enemy) return;
@@ -345,6 +472,7 @@ class GameController {
     const nodesEl = document.getElementById('telemetry-nodes');
     const durEl = document.getElementById('telemetry-duration');
     const pathEl = document.getElementById('telemetry-path');
+    const seedEl = document.getElementById('telemetry-seed');
 
     if (trackEl) {
       trackEl.textContent = this.enemy.hunterMode === 'basic'
@@ -354,6 +482,44 @@ class GameController {
     if (nodesEl) nodesEl.textContent = (stats ? stats.exploredNodes : 0).toString();
     if (durEl) durEl.textContent = `${(stats ? stats.durationMs : 0).toFixed(2)} ms`;
     if (pathEl) pathEl.textContent = `${stats ? stats.pathLength : 0} steps`;
+    if (seedEl) seedEl.textContent = this.maze.seed !== null ? `#${this.maze.seed}` : '#N/A';
+  }
+
+  updateSeedDisplay() {
+    const seedVal = this.maze && this.maze.seed !== null ? `#${this.maze.seed}` : '#N/A';
+    if (this.ui.pauseSeedTag) {
+      this.ui.pauseSeedTag.textContent = `SECTOR SEED: ${seedVal}`;
+    }
+    if (this.ui.telemetrySeed) {
+      this.ui.telemetrySeed.textContent = seedVal;
+    }
+  }
+
+  loadLevelAndReset(level, customSeed) {
+    this.currentSeed = (customSeed !== undefined && customSeed !== null)
+      ? customSeed
+      : ((level * 10007 + 42) >>> 0);
+
+    this.maze.loadLevel(level, this.currentSeed);
+    this.player.reset(this.maze.playerStart.x, this.maze.playerStart.y);
+    this.enemy.setLevel(level);
+    this.enemy.reset(this.maze.enemyStart.x, this.maze.enemyStart.y);
+
+    this.timer = 0;
+    this.hunterEncounters = 0;
+    this._inProximityZone = false;
+    this.isLevelTransitioning = false;
+
+    if (this.keysHeld) this.keysHeld.clear();
+    this.player.setHeldDirection(null);
+
+    this.lastTime = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    if (this.enemy) {
+      this.enemy.stepCooldown = Math.max(this.enemy.stepCooldown, 0.2);
+    }
+
+    this.updateHUD();
+    this.updateSeedDisplay();
   }
 
   startGame() {
@@ -361,6 +527,9 @@ class GameController {
     this.score = 0;
     this.lives = this.maxLives;
     this.timer = 0;
+    this.hunterEncounters = 0;
+    this._inProximityZone = false;
+    this.isLevelTransitioning = false;
     
     // Support safe development query parameter ?level=N
     const urlParams = (typeof window !== 'undefined' && window.location) ? new URLSearchParams(window.location.search) : null;
@@ -368,20 +537,11 @@ class GameController {
     this.level = (Number.isFinite(paramLvl) && paramLvl > 0) ? paramLvl : 1;
     this.hasShownAiActivation = false; // Fresh game session allows reveal at Level 4
 
-    if (this.keysHeld) this.keysHeld.clear();
-    this.maze.loadLevel(this.level);
-    this.player.reset(this.maze.playerStart.x, this.maze.playerStart.y);
-    this.enemy.setLevel(this.level);
-    this.enemy.reset(this.maze.enemyStart.x, this.maze.enemyStart.y);
-
-    this.lastTime = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-    if (this.enemy) {
-      this.enemy.stepCooldown = Math.max(this.enemy.stepCooldown, 0.2);
-    }
+    this.loadLevelAndReset(this.level);
 
     this.hideAllModals();
-    this.ui.menu.classList.add('hidden');
-    this.ui.hud.classList.remove('hidden');
+    this.ui.menu?.classList.add('hidden');
+    this.ui.hud?.classList.remove('hidden');
 
     this.updateHUD();
     
@@ -393,26 +553,32 @@ class GameController {
   }
 
   restartLevel() {
+    if (this.isLevelTransitioning) return;
     document.activeElement?.blur();
-    if (this.keysHeld) this.keysHeld.clear();
-    this.score = 0;
     
-    // Reload same level layout & relics deterministically
-    this.maze.loadLevel(this.level);
-    this.player.reset(this.maze.playerStart.x, this.maze.playerStart.y);
-    this.enemy.setLevel(this.level);
-    this.enemy.reset(this.maze.enemyStart.x, this.maze.enemyStart.y);
-
-    this.lastTime = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-    if (this.enemy) {
-      this.enemy.stepCooldown = Math.max(this.enemy.stepCooldown, 0.2);
-    }
+    // Reload same level layout & relics deterministically with exact same seed
+    this.loadLevelAndReset(this.level, this.maze.seed);
 
     this.lives = this.maxLives;
-    this.timer = 0;
+    this.score = 0;
 
     this.hideAllModals();
-    this.ui.hud.classList.remove('hidden');
+    this.ui.hud?.classList.remove('hidden');
+    this.updateHUD();
+
+    this.state = STATE.PLAYING;
+    if (window.sound) window.sound.playClick();
+  }
+
+  replayLevel() {
+    if (this.isLevelTransitioning) return;
+    document.activeElement?.blur();
+
+    // Replay current level preserving its exact seed and layout
+    this.loadLevelAndReset(this.level, this.maze.seed);
+
+    this.hideAllModals();
+    this.ui.hud?.classList.remove('hidden');
     this.updateHUD();
 
     this.state = STATE.PLAYING;
@@ -420,33 +586,47 @@ class GameController {
   }
 
   nextLevel() {
-    if (this.keysHeld) this.keysHeld.clear();
-    this.level++;
-    
-    // Deterministic progression for new level
-    this.maze.loadLevel(this.level);
-    this.player.reset(this.maze.playerStart.x, this.maze.playerStart.y);
-    this.enemy.setLevel(this.level);
-    this.enemy.reset(this.maze.enemyStart.x, this.maze.enemyStart.y);
+    if (this.isLevelTransitioning) return;
+    if (this.state !== STATE.VICTORY && this.state !== STATE.PLAYING) return;
+    this.isLevelTransitioning = true;
+    document.activeElement?.blur();
 
-    this.lastTime = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-    if (this.enemy) {
-      this.enemy.stepCooldown = Math.max(this.enemy.stepCooldown, 0.2);
+    const targetLevel = this.level + 1;
+
+    // Dismiss victory screen
+    this.ui.victoryScreen?.classList.add('hidden');
+
+    // Display transition overlay
+    if (this.ui.transitionScreen) {
+      const transTitle = document.getElementById('trans-title');
+      const transTheme = document.getElementById('trans-theme');
+      if (transTitle) transTitle.textContent = `PREPARING LEVEL ${targetLevel.toString().padStart(2, '0')}...`;
+      if (transTheme) {
+        const THEME_KEYS = Object.keys(window.MAZE_THEMES || {});
+        const themeKey = THEME_KEYS[(targetLevel - 1) % THEME_KEYS.length];
+        const themeName = window.MAZE_THEMES ? window.MAZE_THEMES[themeKey].name : 'ANCIENT RUINS';
+        transTheme.textContent = `[${themeName.toUpperCase()}]`;
+      }
+      this.ui.transitionScreen.classList.remove('hidden');
     }
 
-    this.timer = 0;
+    if (window.sound) window.sound.playLevelTransition();
 
-    this.hideAllModals();
-    this.ui.hud.classList.remove('hidden');
-    this.updateHUD();
+    // Responsive transition delay (600ms)
+    setTimeout(() => {
+      this.level = targetLevel;
+      this.loadLevelAndReset(this.level);
 
-    // Check one-time AI Hunter activation sequence on reaching Level 4
-    if (this.level === 4 && !this.hasShownAiActivation) {
-      this.triggerAiActivation();
-    } else {
-      this.state = STATE.PLAYING;
-      if (window.sound) window.sound.playClick();
-    }
+      this.ui.transitionScreen?.classList.add('hidden');
+      this.isLevelTransitioning = false;
+
+      // Check one-time AI Hunter activation sequence on reaching Level 4
+      if (this.level === 4 && !this.hasShownAiActivation) {
+        this.triggerAiActivation();
+      } else {
+        this.state = STATE.PLAYING;
+      }
+    }, 600);
   }
 
   triggerAiActivation() {
@@ -462,28 +642,30 @@ class GameController {
     if (window.sound) {
       window.sound.playAiActivation();
     }
-    if (this.settings.screenShake) {
+    if (this.settings.screenShake && this.renderer) {
       this.renderer.triggerShake(5, 0.4);
     }
   }
 
   returnToMenu() {
     document.activeElement?.blur();
+    this.isLevelTransitioning = false;
     if (this.keysHeld) this.keysHeld.clear();
     this.hideAllModals();
-    this.ui.hud.classList.add('hidden');
-    this.ui.menu.classList.remove('hidden');
+    this.ui.hud?.classList.add('hidden');
+    this.ui.menu?.classList.remove('hidden');
     this.updateBestScoreDisplay();
     this.state = STATE.MENU;
     if (window.sound) window.sound.playClick();
   }
 
   togglePause() {
-    if (this.state === STATE.AI_REVEAL) return; // Disallow pause during activation reveal
+    if (this.state === STATE.AI_REVEAL || this.isLevelTransitioning) return;
     document.activeElement?.blur();
     if (this.state === STATE.PLAYING) {
       this.state = STATE.PAUSED;
-      this.ui.pauseScreen.classList.remove('hidden');
+      this.updateSeedDisplay();
+      this.ui.pauseScreen?.classList.remove('hidden');
       if (window.sound) window.sound.playClick();
     } else if (this.state === STATE.PAUSED) {
       this.state = STATE.PLAYING;
@@ -491,7 +673,7 @@ class GameController {
       if (this.enemy) {
         this.enemy.stepCooldown = Math.max(this.enemy.stepCooldown, 0.15);
       }
-      this.ui.pauseScreen.classList.add('hidden');
+      this.ui.pauseScreen?.classList.add('hidden');
       if (window.sound) window.sound.playClick();
     }
   }
@@ -503,35 +685,128 @@ class GameController {
     if (window.sound) window.sound.playGameOver();
 
     // Populate Game Over stats
-    document.getElementById('go-score').textContent = this.score.toString();
-    document.getElementById('go-time').textContent = this.formatTime(this.timer);
-    document.getElementById('go-relics').textContent = `${this.maze.collectedCount}/${this.maze.totalRelics}`;
+    const goScoreEl = document.getElementById('go-score');
+    const goTimeEl = document.getElementById('go-time');
+    const goRelicsEl = document.getElementById('go-relics');
 
-    this.ui.gameOverScreen.classList.remove('hidden');
+    if (goScoreEl) goScoreEl.textContent = this.score.toString();
+    if (goTimeEl) goTimeEl.textContent = this.formatTime(this.timer);
+    if (goRelicsEl) goRelicsEl.textContent = `${this.maze.collectedCount}/${this.maze.totalRelics}`;
+
+    this.ui.gameOverScreen?.classList.remove('hidden');
   }
 
   handleVictory() {
+    if (this.state !== STATE.PLAYING) return;
     this.state = STATE.VICTORY;
 
-    // Calculate bonuses
+    const levelTimeMs = Math.round(this.timer * 1000);
     const timeBonus = Math.max(0, 1000 - Math.floor(this.timer) * 12);
     const totalLevelScore = this.score + timeBonus;
     this.score = totalLevelScore;
+
+    // Check records
+    let isNewBestTime = false;
+    const prevBestTime = this.records.bestTimes[this.level];
+    if (prevBestTime === undefined || levelTimeMs < prevBestTime) {
+      this.records.bestTimes[this.level] = levelTimeMs;
+      isNewBestTime = true;
+    }
+
+    const prevBestScore = this.records.bestScores[this.level];
+    if (prevBestScore === undefined || totalLevelScore > prevBestScore) {
+      this.records.bestScores[this.level] = totalLevelScore;
+    }
+
+    this.records.highestLevel = Math.max(this.records.highestLevel || 1, this.level + 1);
+    this.records.totalCompletedLevels = (this.records.totalCompletedLevels || 0) + 1;
+    this.records.bestRunScore = Math.max(this.records.bestRunScore || 0, this.score);
+
+    this.saveRecords();
     this.saveBestScore();
 
     if (window.sound) window.sound.playVictory();
 
-    document.getElementById('vic-score').textContent = (this.score - timeBonus).toString();
-    document.getElementById('vic-bonus').textContent = `+${timeBonus}`;
-    document.getElementById('vic-total').textContent = totalLevelScore.toString();
+    // Populate Level Complete screen UI
+    const vicLevelEl = document.getElementById('vic-level');
+    const vicRelicsEl = document.getElementById('vic-relics');
+    const vicTimeEl = document.getElementById('vic-time');
+    const vicBestTimeEl = document.getElementById('vic-best-time');
+    const vicEncountersEl = document.getElementById('vic-encounters');
+    const vicScoreEl = document.getElementById('vic-score');
+    const vicBonusEl = document.getElementById('vic-bonus');
+    const vicTotalEl = document.getElementById('vic-total');
 
-    this.ui.victoryScreen.classList.remove('hidden');
+    if (vicLevelEl) vicLevelEl.textContent = `LEVEL ${this.level.toString().padStart(2, '0')}`;
+    if (vicRelicsEl) vicRelicsEl.textContent = `${this.maze.collectedCount}/${this.maze.totalRelics}`;
+    if (vicTimeEl) vicTimeEl.textContent = this.formatTimeMs(levelTimeMs, true);
+    if (vicBestTimeEl) {
+      vicBestTimeEl.textContent = this.formatTimeMs(this.records.bestTimes[this.level], true) + (isNewBestTime ? ' (NEW RECORD!)' : '');
+    }
+    if (vicEncountersEl) vicEncountersEl.textContent = this.hunterEncounters.toString();
+    if (vicScoreEl) vicScoreEl.textContent = (this.score - timeBonus).toString();
+    if (vicBonusEl) vicBonusEl.textContent = `+${timeBonus}`;
+    if (vicTotalEl) vicTotalEl.textContent = totalLevelScore.toString();
+
+    this.ui.victoryScreen?.classList.remove('hidden');
+  }
+
+  openRecordsScreen() {
+    this.records = this.loadRecords();
+    this.populateRecordsTable();
+    this.ui.recordsScreen?.classList.remove('hidden');
+  }
+
+  populateRecordsTable() {
+    const highest = Math.max(5, this.records.highestLevel || 1);
+    if (this.ui.recHighestLevel) this.ui.recHighestLevel.textContent = `LEVEL ${highest.toString().padStart(2, '0')}`;
+    if (this.ui.recTotalCleared) this.ui.recTotalCleared.textContent = (this.records.totalCompletedLevels || 0).toString();
+    if (this.ui.recBestRunScore) this.ui.recBestRunScore.textContent = (this.records.bestRunScore || 0).toString();
+
+    const tbody = document.getElementById('records-table-body');
+    if (!tbody) return;
+
+    let html = '';
+    const THEME_KEYS = Object.keys(window.MAZE_THEMES || {});
+
+    for (let lvl = 1; lvl <= highest; lvl++) {
+      const themeKey = THEME_KEYS.length > 0 ? THEME_KEYS[(lvl - 1) % THEME_KEYS.length] : 'ANCIENT_RUINS';
+      const themeName = (window.MAZE_THEMES && window.MAZE_THEMES[themeKey]) ? window.MAZE_THEMES[themeKey].name : 'Ancient Ruins';
+      const bestTimeMs = this.records.bestTimes[lvl];
+      const bestScore = this.records.bestScores[lvl];
+
+      const timeStr = bestTimeMs !== undefined ? this.formatTimeMs(bestTimeMs, true) : '--:--.---';
+      const scoreStr = bestScore !== undefined ? bestScore.toString() : '--';
+
+      html += `<tr>
+        <td class="cyan-text">LEVEL ${lvl.toString().padStart(2, '0')}</td>
+        <td>${themeName}</td>
+        <td class="${bestTimeMs !== undefined ? 'highlight' : ''}">${timeStr}</td>
+        <td class="amber-text">${scoreStr}</td>
+      </tr>`;
+    }
+    tbody.innerHTML = html;
+  }
+
+  resetAllRecords() {
+    this.records = getDefaultRecords();
+    this.saveRecords();
+    this.bestScore = 0;
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('maze_runner_best_score', '0');
+      }
+    } catch (e) {}
+    this.updateBestScoreDisplay();
+    this.populateRecordsTable();
   }
 
   hideAllModals() {
     this.ui.pauseScreen?.classList.add('hidden');
     this.ui.gameOverScreen?.classList.add('hidden');
     this.ui.victoryScreen?.classList.add('hidden');
+    this.ui.transitionScreen?.classList.add('hidden');
+    this.ui.recordsScreen?.classList.add('hidden');
     this.ui.aiActivationScreen?.classList.add('hidden');
   }
 
@@ -567,6 +842,18 @@ class GameController {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   }
 
+  formatTimeMs(ms, includeMs = false) {
+    if (!Number.isFinite(ms) || ms < 0) return includeMs ? '00:00.000' : '00:00';
+    const totalSec = ms / 1000;
+    const mins = Math.floor(totalSec / 60);
+    const secs = Math.floor(totalSec % 60);
+    const millis = Math.floor(ms % 1000);
+    if (includeMs) {
+      return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${millis.toString().padStart(3, '0')}`;
+    }
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }
+
   /* -------------------------------------------------------------
    * MAIN GAME LOOP
    * ------------------------------------------------------------- */
@@ -576,8 +863,9 @@ class GameController {
     this.elapsedRealTime += dt;
 
     if (this.state === STATE.MENU) {
-      // Draw atmospheric sunset backdrop panorama matching the reference image!
-      this.renderer.renderMenuBackdrop(this.canvas.width, this.canvas.height, this.elapsedRealTime);
+      if (this.renderer) {
+        this.renderer.renderMenuBackdrop(this.canvas.width, this.canvas.height, this.elapsedRealTime);
+      }
     } else if (this.state === STATE.PLAYING) {
       this.timer += dt;
 
@@ -590,7 +878,7 @@ class GameController {
         if (window.sound) window.sound.playPickup();
         if (this.maze.isExitOpen()) {
           if (window.sound) window.sound.playPortalOpen();
-          if (this.settings.screenShake) this.renderer.triggerShake(4, 0.25);
+          if (this.settings.screenShake && this.renderer) this.renderer.triggerShake(4, 0.25);
         }
         this.updateHUD();
       }
@@ -598,12 +886,27 @@ class GameController {
       // 3. Update Enemy AI Hunter
       this.enemy.update(dt, this.maze, this.player);
 
+      // 3.5 Check hunter proximity for encounter telemetry
+      const hunterDist = Math.abs(this.enemy.gridX - this.player.gridX) + Math.abs(this.enemy.gridY - this.player.gridY);
+      if (hunterDist <= 2) {
+        if (!this._inProximityZone) {
+          this.hunterEncounters++;
+          this._inProximityZone = true;
+        }
+      } else if (hunterDist > 3) {
+        this._inProximityZone = false;
+      }
+
       // 4. Check Player-Enemy collision
       if (this.enemy.checkCollision(this.player)) {
         const tookDmg = this.player.takeDamage();
         if (tookDmg) {
           this.lives--;
-          if (this.settings.screenShake) this.renderer.triggerShake(9, 0.35);
+          if (!this._inProximityZone) {
+            this.hunterEncounters++;
+            this._inProximityZone = true;
+          }
+          if (this.settings.screenShake && this.renderer) this.renderer.triggerShake(9, 0.35);
           this.updateHUD();
 
           if (this.lives <= 0) {
@@ -621,34 +924,36 @@ class GameController {
       this.updateHUD();
 
       // 7. Render Maze Scene
-      this.renderer.renderMaze(
-        this.maze,
-        this.player,
-        this.enemy,
-        this.score,
-        this.lives,
-        this.timer,
-        this.level,
-        false,
-        this.elapsedRealTime
-      );
+      if (this.renderer) {
+        this.renderer.renderMaze(
+          this.maze,
+          this.player,
+          this.enemy,
+          this.score,
+          this.lives,
+          this.timer,
+          this.level,
+          false,
+          this.elapsedRealTime
+        );
+      }
     } else if (this.state === STATE.AI_REVEAL) {
       this.revealTimer += dt;
 
-      // Render static maze beneath warning overlay
-      this.renderer.renderMaze(
-        this.maze,
-        this.player,
-        this.enemy,
-        this.score,
-        this.lives,
-        this.timer,
-        this.level,
-        false,
-        this.elapsedRealTime
-      );
+      if (this.renderer) {
+        this.renderer.renderMaze(
+          this.maze,
+          this.player,
+          this.enemy,
+          this.score,
+          this.lives,
+          this.timer,
+          this.level,
+          false,
+          this.elapsedRealTime
+        );
+      }
 
-      // Dismiss overlay and begin active A* gameplay once sequence timer expires
       if (this.revealTimer >= this.revealDuration) {
         if (this.ui.aiActivationScreen) {
           this.ui.aiActivationScreen.classList.add('hidden');
@@ -660,25 +965,48 @@ class GameController {
         }
       }
     } else if (this.state === STATE.PAUSED || this.state === STATE.GAMEOVER || this.state === STATE.VICTORY) {
-      // Keep rendering static/dimmed maze under modal
-      this.renderer.renderMaze(
-        this.maze,
-        this.player,
-        this.enemy,
-        this.score,
-        this.lives,
-        this.timer,
-        this.level,
-        true,
-        this.elapsedRealTime
-      );
+      if (this.renderer) {
+        this.renderer.renderMaze(
+          this.maze,
+          this.player,
+          this.enemy,
+          this.score,
+          this.lives,
+          this.timer,
+          this.level,
+          true,
+          this.elapsedRealTime
+        );
+      }
     }
 
-    requestAnimationFrame(this.gameLoop.bind(this));
+    if (this.canvas && typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(this.gameLoop.bind(this));
+    }
   }
 }
 
-// Instantiate master controller when DOM is ready
-window.addEventListener('DOMContentLoaded', () => {
-  window.game = new GameController();
-});
+// Global browser & CommonJS exports
+if (typeof window !== 'undefined') {
+  window.GameController = GameController;
+  window.STATE = STATE;
+  window.RECORDS_STORAGE_KEY = RECORDS_STORAGE_KEY;
+  window.getDefaultRecords = getDefaultRecords;
+  window.validateAndNormalizeRecords = validateAndNormalizeRecords;
+
+  if (typeof window.addEventListener === 'function') {
+    window.addEventListener('DOMContentLoaded', () => {
+      window.game = new GameController();
+    });
+  }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    GameController,
+    STATE,
+    RECORDS_STORAGE_KEY,
+    getDefaultRecords,
+    validateAndNormalizeRecords
+  };
+}
